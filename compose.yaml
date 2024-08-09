@@ -28,7 +28,7 @@ services:
       - paperlessngx
     depends_on:
       paperlessngx-gotenberg:
-        condition: service_started
+        condition: service_healthy
       paperlessngx-tika:
         condition: service_started
       paperlessngx-postgres:
