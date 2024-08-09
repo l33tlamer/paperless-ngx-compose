@@ -1,0 +1,210 @@
+networks:
+  traefik:
+    external: true
+  paperlessngx:
+    external: false
+
+volumes:
+  paperlessngx-data:
+    name: paperlessngx-data
+  paperlessngx-media:
+    name: paperlessngx-media
+  paperlessngx-postgres:
+    name: paperlessngx-postgres
+  paperlessngx-keydb:
+    name: paperlessngx-keydb
+
+services:
+  paperlessngx:
+    container_name: paperlessngx
+    image: ghcr.io/paperless-ngx/paperless-ngx:2.11.3
+    restart: unless-stopped
+      - traefik.enable=true
+      - traefik.docker.network=traefik
+      - traefik.http.routers.paperless.rule=Host(`paperless.example.com`)
+      - traefik.http.services.paperless.loadbalancer.server.port=8000
+    networks:
+      - traefik
+      - paperlessngx
+    depends_on:
+      paperlessngx-gotenberg:
+        condition: service_started
+      paperlessngx-tika:
+        condition: service_started
+      paperlessngx-postgres:
+        condition: service_healthy
+      paperlessngx-keydb:
+        condition: service_healthy
+  # ports:
+  #   - 8000:8000
+    environment:
+    ### basics
+      - PAPERLESS_APP_TITLE=Paperless
+      - PAPERLESS_TIME_ZONE=Europe/Berlin
+    ### reverse proxy
+      - PAPERLESS_URL=https://paperless.example.com
+    # - PAPERLESS_ALLOWED_HOSTS=
+    # - PAPERLESS_CSRF_TRUSTED_ORIGINS=
+    # - PAPERLESS_CORS_ALLOWED_HOSTS=
+    # - PAPERLESS_TRUSTED_PROXIES=
+    # - PAPERLESS_USE_X_FORWARD_HOST=
+    # - PAPERLESS_USE_X_FORWARD_PORT=
+    # - PAPERLESS_PROXY_SSL_HEADER=
+    # - PAPERLESS_STATIC_URL=/PATHPREFIX/static/
+    # - PAPERLESS_FORCE_SCRIPT_NAME=/PATHPREFIX
+    ### user accounts
+      - PAPERLESS_ADMIN_USER=admin
+      - PAPERLESS_ADMIN_PASSWORD=password
+      - PAPERLESS_ADMIN_MAIL=email@example.com
+      - PAPERLESS_ACCOUNT_ALLOW_SIGNUPS=false
+    # - PAPERLESS_AUTO_LOGIN_USERNAME=
+    ### default OCR language to use
+      - PAPERLESS_OCR_LANGUAGE=deu
+    ### additional OCR languages to install
+    # - 'PAPERLESS_OCR_LANGUAGES=deu eng'
+    ### generate your own secret, example 'openssl rand -hex 16'
+      - PAPERLESS_SECRET_KEY=c9d28ad5c6e33d325cb777266a3dce2d
+    ### set your user/group ids
+      - USERMAP_UID=1000
+      - USERMAP_GID=1000
+    ### connections
+      - PAPERLESS_DBENGINE=postgresql
+      - PAPERLESS_DBHOST=paperlessngx-postgres
+      - PAPERLESS_DBPORT=5432
+      - PAPERLESS_REDIS=redis://paperlessngx-keydb:6379
+      - PAPERLESS_TIKA_ENABLED=1
+      - PAPERLESS_TIKA_ENDPOINT=http://paperlessngx-tika:9998
+      - PAPERLESS_TIKA_GOTENBERG_ENDPOINT=http://paperlessngx-gotenberg:3000
+    ### email (optional, only for pw resets)
+    # - PAPERLESS_EMAIL_HOST=smtp.gmail.com
+    # - PAPERLESS_EMAIL_PORT=587
+    # - PAPERLESS_EMAIL_USE_TLS=true
+    # - PAPERLESS_EMAIL_HOST_USER=example@gmail.com
+    # - PAPERLESS_EMAIL_HOST_PASSWORD=password
+    # - PAPERLESS_EMAIL_FROM=example@gmail.com
+    ### optional for low-powered devices
+    # - PAPERLESS_OCR_PAGES=1
+    # - PAPERLESS_TASK_WORKERS=2
+    # - PAPERLESS_THREADS_PER_WORKER=1
+    # - PAPERLESS_OCR_MODE=skip
+    # - PAPERLESS_OCR_SKIP_ARCHIVE_FILE=with_text
+    # - PAPERLESS_OCR_CLEAN=none
+    # - PAPERLESS_WEBSERVER_WORKERS=1
+    # - PAPERLESS_ENABLE_NLTK=false
+    volumes:
+      - paperlessngx-data:/usr/src/paperless/data
+      - paperlessngx-media:/usr/src/paperless/media
+      - ./export:/usr/src/paperless/export
+      - ./consume:/usr/src/paperless/consume
+    healthcheck:
+      test: "curl --fail -s http://localhost:8000/ || exit 1"
+      start_period: 60s
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 2g
+    memswap_limit: 2g
+    mem_reservation: 1g
+    cpus: 0.5
+
+
+
+  paperlessngx-tika:
+    container_name: paperlessngx-tika
+    hostname: paperlessngx-tika
+    image: ghcr.io/paperless-ngx/tika:2.9.1-minimal
+    restart: unless-stopped
+    networks:
+      - paperlessngx
+    healthcheck:
+      test: ['CMD-SHELL', 'pgrep -x "java" || exit 1']
+      start_period: 60s
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 500m
+    memswap_limit: 500m
+    mem_reservation: 250m
+    cpus: 0.5
+
+
+
+  paperlessngx-gotenberg:
+    container_name: paperlessngx-gotenberg
+    hostname: paperlessngx-gotenberg
+    image: gotenberg/gotenberg:8.9.0
+    restart: unless-stopped
+    networks:
+      - paperlessngx
+    command:
+      - "gotenberg"
+      - "--chromium-disable-javascript=true"
+      - "--chromium-allow-list=file:///tmp/.*"
+    healthcheck:
+      test: "curl --fail -s http://localhost:3000/health || exit 1"
+      start_period: 60s
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    mem_limit: 250m
+    memswap_limit: 250m
+    mem_reservation: 25m
+    cpus: 0.5
+
+
+
+  paperlessngx-postgres:
+    container_name: paperlessngx-postgres
+    hostname: paperlessngx-postgres
+    image: postgres:16.4-alpine3.20
+    restart: unless-stopped
+    networks:
+      - paperlessngx
+    environment:
+      - TZ=Europe/Berlin
+      - POSTGRES_DB=paperless
+      - POSTGRES_USER=paperless
+      - POSTGRES_PASSWORD=paperless
+    volumes:
+      - paperlessngx-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      start_period: 60s
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 150m
+    memswap_limit: 150m
+    mem_reservation: 50m
+    cpus: 0.5
+
+
+
+  paperlessngx-keydb:
+    container_name: paperlessngx-keydb
+    hostname: paperlessngx-keydb
+    image: eqalpha/keydb:x86_64_v6.3.4
+    restart: unless-stopped
+    networks:
+      - paperlessngx
+    environment:
+      - 'TZ=Europe/Berlin'
+      - 'PUID=1000'
+      - 'PGID=1000'
+    command: keydb-server /etc/keydb/keydb.conf --appendonly yes --server-threads 2 --active-replica no
+    volumes:
+      - paperlessngx-keydb:/data
+    healthcheck:
+      test: ["CMD", "keydb-cli", "ping"]
+      start_period: 60s
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 100m
+    memswap_limit: 100m
+    mem_reservation: 25m
+    cpus: 0.5
+
+
+
+### EOF
