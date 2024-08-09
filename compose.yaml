@@ -30,7 +30,7 @@ services:
       paperlessngx-gotenberg:
         condition: service_healthy
       paperlessngx-tika:
-        condition: service_started
+        condition: service_healthy
       paperlessngx-postgres:
         condition: service_healthy
       paperlessngx-keydb:
@@ -116,6 +116,12 @@ services:
     restart: unless-stopped
     networks:
       - paperlessngx
+    healthcheck:
+      test: "wget --no-verbose --tries=1 --spider --no-check-certificate http://localhost:9998 || exit 1"
+      start_period: 60s
+      interval: 30s
+      timeout: 5s
+      retries: 3
     mem_limit: 500m
     memswap_limit: 500m
     mem_reservation: 250m
