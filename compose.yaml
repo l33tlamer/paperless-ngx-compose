@@ -112,16 +112,10 @@ services:
   paperlessngx-tika:
     container_name: paperlessngx-tika
     hostname: paperlessngx-tika
-    image: ghcr.io/paperless-ngx/tika:2.9.1-minimal
+    image: apache/tika:2.9.2.1-full
     restart: unless-stopped
     networks:
       - paperlessngx
-    healthcheck:
-      test: ['CMD-SHELL', 'pgrep -x "java" || exit 1']
-      start_period: 60s
-      interval: 30s
-      timeout: 5s
-      retries: 3
     mem_limit: 500m
     memswap_limit: 500m
     mem_reservation: 250m
